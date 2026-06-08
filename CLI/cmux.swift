@@ -28006,6 +28006,42 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 requireLiveProcess: true
             )) == true
         }
+        func liveDifferentSessionOwnsSurface(workspaceId: String, surfaceId: String) -> Bool {
+            (try? store.hasRunningSession(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                excludingSessionId: sessionId,
+                requireLiveProcess: true
+            )) == true
+        }
+        // Publish this session's surface resume binding UNLESS a *different* agent session is still
+        // live on the same surface. That only happens when PID/TTY ground truth is unavailable
+        // (remote/SSH) and a leaked CMUX_SURFACE_ID routes this hook onto the live session's pane —
+        // the slice https://github.com/manaflow-ai/cmux/issues/5333's PID/TTY override punts on.
+        // Overwriting the live session's binding would orphan the running thread across reload, so
+        // preserve it. A stopped/dead prior session does not count (`requireLiveProcess`), so normal
+        // resume-latest takeover of a finished session is unaffected.
+        func publishResumeBindingUnlessLiveSurfaceOwner(
+            workspaceId: String,
+            surfaceId: String,
+            cwd: String?,
+            launchCommand: AgentHookLaunchCommandRecord?
+        ) {
+            if liveDifferentSessionOwnsSurface(workspaceId: workspaceId, surfaceId: surfaceId) {
+                telemetry.breadcrumb("\(def.name)-hook.preserve-live-surface-binding")
+                return
+            }
+            publishAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                kind: def.name,
+                displayName: def.displayName,
+                sessionId: sessionId,
+                cwd: cwd,
+                launchCommand: launchCommand
+            )
+        }
         func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
             if hasOtherRunningSession(workspaceId: workspaceId) {
 #if DEBUG
@@ -28236,13 +28272,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
                 } else {
                     try? store.clearNotificationEmission(sessionId: sessionId)
-                    publishAgentSurfaceResumeBinding(
-                        client: client,
+                    publishResumeBindingUnlessLiveSurfaceOwner(
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        kind: def.name,
-                        displayName: def.displayName,
-                        sessionId: sessionId,
                         cwd: hookCwd ?? mapped?.cwd,
                         launchCommand: launchCommand
                     )
@@ -28352,13 +28384,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     updateRuntimeStatus: true
                 )
                 try? store.clearNotificationEmission(sessionId: sessionId)
-                publishAgentSurfaceResumeBinding(
-                    client: client,
+                publishResumeBindingUnlessLiveSurfaceOwner(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
@@ -28592,13 +28620,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                                   updateLastNotificationStatus: true,
                                   runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
                                   updateRuntimeStatus: true)
-                publishAgentSurfaceResumeBinding(
-                    client: client,
+                publishResumeBindingUnlessLiveSurfaceOwner(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
                     cwd: cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
@@ -28749,13 +28773,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     agentLifecycle: .running,
                     runtimeStatus: .running
                 )
-                publishAgentSurfaceResumeBinding(
-                    client: client,
+                publishResumeBindingUnlessLiveSurfaceOwner(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
