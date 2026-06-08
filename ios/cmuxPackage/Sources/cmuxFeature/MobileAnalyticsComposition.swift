@@ -31,6 +31,9 @@ public struct MobileAnalyticsComposition {
     public let sessionStore: AnalyticsSessionStore
     /// The 30-minute-window sessionizer used with ``sessionStore``.
     public let sessionizer = AnalyticsSessionizer()
+    /// Once-per-period dedup for the daily + hourly active retention pings,
+    /// mirroring macOS `cmux_daily_active` / `cmux_hourly_active`.
+    public let activePeriodStore: AnalyticsActivePeriodStore
 
     /// Builds the analytics graph.
     ///
@@ -74,6 +77,7 @@ public struct MobileAnalyticsComposition {
         }
         self.emitter = emitter
         self.sessionStore = AnalyticsSessionStore(defaults: defaults)
+        self.activePeriodStore = AnalyticsActivePeriodStore(defaults: defaults)
     }
 
     /// A short-timeout `URLSession` for analytics uploads.

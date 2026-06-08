@@ -80,6 +80,46 @@ final class PostHogAnalytics {
         }
     }
 
+    /// Associates subsequent events with the signed-in Stack user id so the
+    /// desktop app keys on the same distinct id as the iOS proxy (which stamps
+    /// the authenticated Stack `user.id`). PostHog back-merges the pre-login
+    /// anonymous events into the identified user, so the desktop install's
+    /// pre-sign-in funnel attaches to the same person across iOS and macOS.
+    ///
+    /// - Parameter stackUserID: The signed-in Stack user id. Empty values are
+    ///   ignored so a partially-resolved identity can't identify as "".
+    func identify(stackUserID: String) {
+        let trimmed = stackUserID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            // Identify must run after `setup()` or the SDK drops it; the
+            // `startIfNeededOnWorkQueue()` guard above mirrors the active-event path.
+            PostHogSDK.shared.identify(trimmed)
+        }
+    }
+
+    /// Resets analytics identity back to a fresh anonymous distinct id on
+    /// sign-out, so a subsequent different sign-in does not merge into the prior
+    /// user. Mirrors the iOS `identify(userId: nil)` reset.
+    ///
+    /// Starts the SDK first (like ``identify(stackUserID:)``): the SDK persists
+    /// its distinct id across launches, so a signed-out launch after a prior
+    /// identified session must set up and reset the SDK *before* the first
+    /// active/retention event starts it with the stale persisted id. When
+    /// telemetry is disabled `startIfNeededOnWorkQueue()` leaves `didStart`
+    /// false, so this is a no-op and no analytics are emitted at all.
+    func reset() {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            PostHogSDK.shared.reset()
+        }
+    }
+
     private func startIfNeededOnWorkQueue() {
         guard !didStart else { return }
         guard isEnabled else { return }
